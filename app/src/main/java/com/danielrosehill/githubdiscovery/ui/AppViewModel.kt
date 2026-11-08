@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalDate
 
 enum class Tab { DISCOVER, TOPICS, SAVED }
@@ -106,18 +107,28 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runSearch(Filters(created = Preset.HOT_WEEK.created), Preset.HOT_WEEK.sort)
             loadTopics("is:featured")
         }
+        resumePendingSignIn()
     }
 
     // ================= Auth =================
-    fun startSignIn() {
+    fun startSignIn() = runSignIn(null)
+
+    /**
+     * The pending device code is persisted because Android often kills the app while the user is
+     * approving in the browser. On relaunch, [resumePendingSignIn] picks the code up and keeps
+     * polling, so an approval made on GitHub is still collected (verified failure mode 2026-11-08:
+     * the grant existed on GitHub but its token was "Never used").
+     */
+    private fun runSignIn(pending: DeviceFlow.Code?) {
         authJob?.cancel()
         authError = null
         auth = AuthState.Starting
         authJob = viewModelScope.launch {
             try {
-                val code = DeviceFlow.start()
+                val code = pending ?: DeviceFlow.start().also { savePending(it) }
                 auth = AuthState.AwaitingApproval(code.userCode, code.verificationUri)
                 val token = DeviceFlow.awaitToken(code)
+                clearPending()
                 val client = GitHubApi(token)
                 val login = client.viewerLogin()
                 prefs.edit().putString(KEY_TOKEN, token).putString(KEY_LOGIN, login).apply()
@@ -128,6 +139,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                clearPending()
                 authError = e.message ?: "Sign-in failed"
                 auth = AuthState.SignedOut
             }
@@ -136,7 +148,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelSignIn() {
         authJob?.cancel()
+        clearPending()
         auth = AuthState.SignedOut
+    }
+
+    private fun savePending(c: DeviceFlow.Code) {
+        val o = JSONObject()
+            .put("device_code", c.deviceCode).put("user_code", c.userCode)
+            .put("uri", c.verificationUri).put("interval", c.intervalSec)
+            .put("expires_at", System.currentTimeMillis() + c.expiresInSec * 1000L)
+        prefs.edit().putString(KEY_PENDING, o.toString()).apply()
+    }
+
+    private fun clearPending() = prefs.edit().remove(KEY_PENDING).apply()
+
+    private fun resumePendingSignIn() {
+        if (api != null) return clearPending()
+        val o = prefs.getString(KEY_PENDING, null)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+        val left = ((o.optLong("expires_at") - System.currentTimeMillis()) / 1000).toInt()
+        if (left <= 0) return clearPending()
+        runSignIn(
+            DeviceFlow.Code(
+                deviceCode = o.getString("device_code"), userCode = o.getString("user_code"),
+                verificationUri = o.getString("uri"), intervalSec = o.optInt("interval", 5),
+                expiresInSec = left,
+            ),
+        )
     }
 
     fun signOut() {
@@ -383,5 +420,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val KEY_TOKEN = "token"
         const val KEY_LOGIN = "login"
         const val KEY_SAVED = "saved_searches"
+        const val KEY_PENDING = "pending_device_code"
     }
 }

@@ -12,8 +12,8 @@ android {
         applicationId = "com.danielrosehill.githubdiscovery"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         // Public OAuth App client ID (Device Flow). Not a secret: device flow needs no client secret.
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"Ov23liXxSmC0e2T1953G\"")
     }

@@ -2,6 +2,7 @@ package com.danielrosehill.githubdiscovery.api
 
 import com.danielrosehill.githubdiscovery.BuildConfig
 import kotlinx.coroutines.delay
+import java.io.IOException
 import java.net.URLEncoder
 
 /**
@@ -44,11 +45,17 @@ object DeviceFlow {
         val deadline = System.currentTimeMillis() + code.expiresInSec * 1000L
         while (System.currentTimeMillis() < deadline) {
             delay(interval * 1000L)
-            val j = Http.postForm(
-                "https://github.com/login/oauth/access_token",
-                "client_id=${enc(BuildConfig.GITHUB_CLIENT_ID)}&device_code=${enc(code.deviceCode)}" +
-                    "&grant_type=${enc("urn:ietf:params:oauth:grant-type:device_code")}",
-            )
+            // A phone switching to the browser and back often drops a request or two. One failed
+            // poll must not end sign-in: GitHub keeps the grant until the code expires.
+            val j = try {
+                Http.postForm(
+                    "https://github.com/login/oauth/access_token",
+                    "client_id=${enc(BuildConfig.GITHUB_CLIENT_ID)}&device_code=${enc(code.deviceCode)}" +
+                        "&grant_type=${enc("urn:ietf:params:oauth:grant-type:device_code")}",
+                )
+            } catch (e: IOException) {
+                continue
+            }
             j.str("access_token")?.let { return it }
             when (j.str("error")) {
                 "authorization_pending" -> Unit

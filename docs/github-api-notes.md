@@ -19,3 +19,9 @@ Findings this app depends on, with how each was checked.
 
 ## Topics
 - GraphQL `topic(name).relatedTopics` came back empty for `data-labeling`, so it isn't used. Topic search uses REST `GET /search/topics?q=` (`is:featured` for the default list).
+
+## Sign-in that never completed (fixed in v1.1, 2026-11-08)
+- Symptom: Daniel approved the code on github.com, the app never signed in, and he read it as a misconfigured redirect.
+- Checked on GitHub 2026-11-08: OAuth App 3982301 ("Discovery") has Device Flow enabled and redirect URI `https://github.com/danielrosehill/GitHub-Discovery`. Under Settings → Applications → Authorized OAuth Apps, "Discovery" **was** authorized but its token showed **"Never used"**. GitHub issued the grant and the app never collected it. The redirect URI plays no part in device flow, so it was ruled out.
+- Cause (inferred from the code, not reproduced on the phone): `DeviceFlow.awaitToken` aborted on the first failed poll, which is common while the phone switches to the browser and back, and the device code lived only in the ViewModel, so if Android killed the app during approval, nobody was left polling.
+- Fix: polls that hit an `IOException` are skipped. The pending device code is saved in prefs (`pending_device_code`) and `AppViewModel.init` resumes polling on relaunch until the code expires (15 min).
