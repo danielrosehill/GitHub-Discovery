@@ -68,6 +68,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** The exact query string sent to GitHub (shown so it can be copied to desktop search). */
     var activeQuery by mutableStateOf("")
         private set
+    /** Zero-based results page shown in Discover; pages are [PAGE_SIZE] repos cut from [results]. */
+    var page by mutableStateOf(0)
+        private set
 
     private var generation = 0
     private var cursor: String? = null
@@ -203,6 +206,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         searchError = null
         newestReachedDate = null
         loading = false
+        page = 0
         newest = if (s == Sort.NEWEST) {
             val today = LocalDate.now()
             NewestCursor(windowEnd = today, size = 1, floor = f.created.since(today) ?: LocalDate.of(2008, 1, 1))
@@ -211,6 +215,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadMore()
     }
 
+
+    /** Known page count, or null while more results can still be fetched with no known total (Newest). */
+    val pageCount: Int?
+        get() = when {
+            endReached -> maxOf(1, (results.size + PAGE_SIZE - 1) / PAGE_SIZE)
+            sort != Sort.NEWEST && total != null -> maxOf(1, (minOf(total!!, 1000) + PAGE_SIZE - 1) / PAGE_SIZE)
+            else -> null
+        }
+
+    fun goToPage(p: Int) {
+        page = p.coerceAtLeast(0).let { n -> pageCount?.let { minOf(n, it - 1) } ?: n }
+    }
+
+    /** Fetch until the current page is filled (called from the UI whenever page/results change). */
+    fun ensurePageLoaded() {
+        if (results.size < (page + 1) * PAGE_SIZE && !endReached && searchError == null) loadMore()
+        if (endReached) pageCount?.let { if (page > it - 1) page = it - 1 }
+    }
 
     fun searchTopic(topic: String) {
         tab = Tab.DISCOVER
@@ -423,3 +445,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val KEY_PENDING = "pending_device_code"
     }
 }
+
+/** Repos per Discover page. */
+const val PAGE_SIZE = 20

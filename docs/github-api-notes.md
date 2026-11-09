@@ -26,3 +26,8 @@ Findings this app depends on, with how each was checked.
 - Cause (inferred from the code, not reproduced on the phone): `DeviceFlow.awaitToken` aborted on the first failed poll, which is common while the phone switches to the browser and back, and the device code lived only in the ViewModel, so if Android killed the app during approval, nobody was left polling.
 - Fix: polls that hit an `IOException` are skipped. The pending device code is saved in prefs (`pending_device_code`) and `AppViewModel.init` resumes polling on relaunch until the code expires (15 min).
 - Confirmed 2026-11-08 from the error Daniel saw on v1.0: after he approved the code, the app showed "Unable to resolve host "github.com": No address associated with hostname". That is an `UnknownHostException` (an `IOException`) thrown by a token poll while the app was in the background and Android had cut its network/DNS access. v1.0 surfaced it as a fatal sign-in error; v1.1 skips that poll and retries on the next interval, which succeeds once the app is back in the foreground.
+
+## Discover pagination (v1.2, 2026-11-09)
+- Discover shows numbered pages of `PAGE_SIZE` (20) repos instead of infinite scroll. GraphQL still fetches 50 per request: `AppViewModel.ensurePageLoaded` calls `loadMore` until `results` covers the current page, and `DiscoverScreen` re-runs it whenever `page`, `results.size` or `loading` changes.
+- Page count: sorted searches use `min(total, 1000) / 20`. Newest has no known total, so the pager shows "…" after the next page until `endReached`.
+- v1.2 is published to the private F-Droid channel only, signed with the same daniellaptop debug key as v1.0/v1.1 (`7d1b2e5b8c0d…`). Not verified on a device or emulator; compile-checked only.
